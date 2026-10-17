@@ -9,6 +9,7 @@ mkdir "%dist%"
 
 for /f "delims=" %%i in ('go env GOOS') do set "host_os=%%i"
 for /f "delims=" %%i in ('go env GOARCH') do set "host_arch=%%i"
+for /f "delims=" %%i in ('powershell -Command "(Get-Date).ToString(''yy.MM.dd'')"') do set "VERSION=%%i"
 
 echo Products will be generated into .\dist (%dist%)
 echo.
@@ -21,7 +22,7 @@ for %%p in (linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wind
         set "ext="
         if "!os!"=="windows" set "ext=.exe"
         set "CGO_ENABLED=0"
-        go build -trimpath -ldflags="-s -w" -o "!dist!\imgc-!os!_!arch!!ext!" .
+        go build -trimpath -ldflags="-s -w -X main.buildVersion=!VERSION!" -o "!dist!\imgc-!os!_!arch!!ext!" .
         if errorlevel 1 exit /b 1
         echo     imgc-!os!_!arch!!ext!
     )
@@ -30,7 +31,7 @@ for %%p in (linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wind
 echo   imgo ...
 for %%a in (amd64 arm64) do (
     set "CGO_ENABLED=0"
-    go build -trimpath -tags gui -ldflags="-s -w -H=windowsgui" -o "!dist!\imgo-windows_%%a.exe" .
+    go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=!VERSION! -H=windowsgui" -o "!dist!\imgo-windows_%%a.exe" .
     if errorlevel 1 exit /b 1
     echo     imgo-windows_%%a.exe
 )

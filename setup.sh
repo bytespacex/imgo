@@ -5,6 +5,8 @@
 # POSIX sh, so it runs on any Linux / macOS without zsh. Windows: use setup.cmd.
 set -e
 
+VERSION=$(date +%y.%m.%d)
+
 dist="$(pwd)/dist"
 rm -rf "$dist"
 mkdir -p "$dist"
@@ -24,7 +26,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
     if [ "$os" = windows ]; then ext=.exe; fi
     name="imgc-${os}_${arch}${ext}"
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-        go build -trimpath -ldflags="-s -w" -o "$dist/$name" .
+        go build -trimpath -ldflags="-s -w -X main.buildVersion=$VERSION" -o "$dist/$name" .
     echo "    $name"
 done
 
@@ -34,12 +36,12 @@ echo "  imgo ..."
 for arch in amd64 arm64; do
     name="imgo-windows_${arch}.exe"
     CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-        go build -trimpath -tags gui -ldflags="-s -w -H=windowsgui" -o "$dist/$name" .
+        go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -H=windowsgui" -o "$dist/$name" .
     echo "    $name"
 done
 if [ "$host_os" != windows ]; then
     name="imgo-${host_os}_${host_arch}"
-    go build -trimpath -tags gui -ldflags="-s -w" -o "$dist/$name" .
+    go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION" -o "$dist/$name" .
     echo "    $name"
 fi
 echo
