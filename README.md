@@ -121,9 +121,17 @@ CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags gui \
 
 **Build tags** — `imgo.go` / `font.go` / `anim.go` / `measure.go` and their tests carry `//go:build gui` and are compiled only with `-tags gui`; `imgo_stub.go` stands in the opposite way so the CLI build never pulls in Ebitengine. The two binaries share the same `main`: the GUI build opens a window by default, the CLI build previews in the terminal. A few platform-specific files are split by OS (`*_unix.go` / `*_windows.go` / `*_darwin.go` and the like) and selected by build tag.
 
+**Version stamping** — `imgc -version` / `imgo -version` print the `main.buildVersion` variable, injected with `-ldflags="-X main.buildVersion=<ver>"`; the printed program name comes from `main.appName` (`imgc` for the CLI, `imgo` for the GUI build, set the same way). A plain `go build` keeps the `0.1.0` default, while `setup.sh` / `setup.cmd` and the release workflow inject the build date automatically (`yy.mm.dd`, e.g. `26.10.18`), so a tagged release reports `imgo 26.10.18`.
+
+```sh
+# stamp a version by hand
+CGO_ENABLED=0 go build -ldflags="-s -w -X main.buildVersion=26.10.18" -o imgc .
+go build -tags gui -ldflags="-s -w -X main.buildVersion=26.10.18 -X main.appName=imgo" -o imgo .
+```
+
 ### Releases
 
-Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): on Ubuntu it runs `gofmt` / `go vet` / cross-compiles imgc (six targets) + imgo (Linux, Windows) with the GUI tests under Xvfb; on macOS it builds imgo (arm64 / amd64). It then creates a Release with every artifact plus `SHA256SUMS.txt`.
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): on Ubuntu it runs `gofmt` / `go vet` / cross-compiles imgc (six targets) + imgo (Linux, Windows) with the GUI tests under Xvfb; on macOS it builds imgo (arm64 / amd64). It then creates a Release with every artifact plus `SHA256SUMS.txt`. Every binary is stamped with the build date as its version (`yy.mm.dd`, e.g. `26.10.18`).
 
 ```sh
 git tag v0.1.0
