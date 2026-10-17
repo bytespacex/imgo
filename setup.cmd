@@ -31,7 +31,7 @@ for %%p in (linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wind
 echo   imgo ...
 for %%a in (amd64 arm64) do (
     set "CGO_ENABLED=0"
-    go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=!VERSION! -H=windowsgui" -o "!dist!\imgo-windows_%%a.exe" .
+    go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=!VERSION! -X main.appName=imgo -H=windowsgui" -o "!dist!\imgo-windows_%%a.exe" .
     if errorlevel 1 exit /b 1
     echo     imgo-windows_%%a.exe
 )

@@ -23,8 +23,14 @@ import (
 	"path/filepath"
 )
 
-// buildVersion is injected at build time via -ldflags="-X main.buildVersion=...".
-var buildVersion = "0.1.0"
+// buildVersion and appName are injected at build time via ldflags:
+//
+//	imgc: -X main.buildVersion=26.10.18              (appName defaults to "imgc")
+//	imgo: -X main.buildVersion=26.10.18 -X main.appName=imgo
+var (
+	buildVersion = "0.1.0"
+	appName      = "imgc"
+)
 
 func main() {
 	var (
@@ -42,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("imgc", buildVersion)
+		fmt.Println(appName, buildVersion)
 		return
 	}
 	if *warmup {

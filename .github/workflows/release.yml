@@ -64,11 +64,11 @@ jobs:
               go build -trimpath -ldflags="-s -w -X main.buildVersion=$VERSION" -o "dist/imgc-${os}_${arch}${ext}" .
           done
           # imgo: Linux GUI needs cgo (build on the host).
-          go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION" -o dist/imgo-linux_amd64 .
+          go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo" -o dist/imgo-linux_amd64 .
           # imgo: Windows GUI cross-compile (purego, no cgo; hide console).
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-              go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -H=windowsgui" \
+              go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo -H=windowsgui" \
               -o "dist/imgo-windows_${arch}.exe" .
           done
 
@@ -106,7 +106,7 @@ jobs:
           # imgo: GUI build needs cgo; build both Apple Silicon and Intel.
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
-              go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION" \
+              go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo" \
               -o "dist/imgo-darwin_${arch}" .
           done
           # imgc: pure Go CLI for the host arch.
