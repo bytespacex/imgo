@@ -54,20 +54,21 @@ jobs:
 
       - name: Build Linux + Windows + cross imgc
         run: |
+          VERSION=$(date +%y.%m.%d)
           mkdir -p dist
           # imgc: pure Go, cross-compiles to every target.
           for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os="${t%/*}"; arch="${t#*/}"; ext=""
             if [ "$os" = windows ]; then ext=".exe"; fi
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-              go build -trimpath -ldflags="-s -w" -o "dist/imgc-${os}_${arch}${ext}" .
+              go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o "dist/imgc-${os}_${arch}${ext}" .
           done
           # imgo: Linux GUI needs cgo (build on the host).
-          go build -trimpath -tags gui -ldflags="-s -w" -o dist/imgo-linux_amd64 .
+          go build -trimpath -tags gui -ldflags="-s -w -X main.version=$VERSION" -o dist/imgo-linux_amd64 .
           # imgo: Windows GUI cross-compile (purego, no cgo; hide console).
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-              go build -trimpath -tags gui -ldflags="-s -w -H=windowsgui" \
+              go build -trimpath -tags gui -ldflags="-s -w -X main.version=$VERSION -H=windowsgui" \
               -o "dist/imgo-windows_${arch}.exe" .
           done
 
@@ -100,15 +101,16 @@ jobs:
 
       - name: Build macOS binaries
         run: |
+          VERSION=$(date +%y.%m.%d)
           mkdir -p dist
           # imgo: GUI build needs cgo; build both Apple Silicon and Intel.
           for arch in arm64 amd64; do
             CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
-              go build -trimpath -tags gui -ldflags="-s -w" \
+              go build -trimpath -tags gui -ldflags="-s -w -X main.version=$VERSION" \
               -o "dist/imgo-darwin_${arch}" .
           done
           # imgc: pure Go CLI for the host arch.
-          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$VERSION" \
             -o "dist/imgc-darwin_$(go env GOARCH)" .
 
       - uses: actions/upload-artifact@v4

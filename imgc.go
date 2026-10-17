@@ -23,6 +23,9 @@ import (
 	"path/filepath"
 )
 
+// version is injected at build time via -ldflags="-X main.version=...".
+var version = "0.1.0"
+
 func main() {
 	var (
 		cols    = flag.Int("W", 0, "preview width in cells")
@@ -39,7 +42,7 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Println("imgc 0.1.0")
+		fmt.Println("imgc", version)
 		return
 	}
 	if *warmup {
