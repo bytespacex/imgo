@@ -1,0 +1,139 @@
+# Build and release imgo / imgc for macOS, Windows and Linux in one workflow.
+#
+# Jobs:
+#   - linux  (ubuntu): cross-compile imgc to every target; build imgo for Linux
+#                  (cgo) and cross-compile imgo for Windows (purego).
+#   - macos  (macOS):  build imgo for macOS (arm64 + amd64, needs cgo, must run
+#                  on a real Mac) and imgc for the host arch.
+#   - release:           gathers all artifacts, generates SHA256SUMS.txt and
+#                  publishes a GitHub Release (only on a v* tag).
+#
+# Trigger: push a v* tag      -> build + publish a Release
+#          workflow_dispatch  -> build artifacts only, kept for 90 days
+
+name: build & release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxxf86vm-dev libasound2-dev pkg-config xvfb
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags gui ./...
+
+      - name: Test (GUI, headless via Xvfb)
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a go test -count=1 -tags gui ./...
+
+      - name: Build Linux + Windows + cross imgc
+        run: |
+          mkdir -p dist
+          # imgc: pure Go, cross-compiles to every target.
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os="${t%/*}"; arch="${t#*/}"; ext=""
+            if [ "$os" = windows ]; then ext=".exe"; fi
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags="-s -w" -o "dist/imgc-${os}_${arch}${ext}" .
+          done
+          # imgo: Linux GUI needs cgo (build on the host).
+          go build -trimpath -tags gui -ldflags="-s -w" -o dist/imgo-linux_amd64 .
+          # imgo: Windows GUI cross-compile (purego, no cgo; hide console).
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
+              go build -trimpath -tags gui -ldflags="-s -w -H=windowsgui" \
+              -o "dist/imgo-windows_${arch}.exe" .
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: dist/*
+          retention-days: 90
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags gui ./...
+
+      - name: Test (GUI)
+        run: go test -count=1 -tags gui ./...
+
+      - name: Build macOS binaries
+        run: |
+          mkdir -p dist
+          # imgo: GUI build needs cgo; build both Apple Silicon and Intel.
+          for arch in arm64 amd64; do
+            CGO_ENABLED=1 GOOS=darwin GOARCH="$arch" \
+              go build -trimpath -tags gui -ldflags="-s -w" \
+              -o "dist/imgo-darwin_${arch}" .
+          done
+          # imgc: pure Go CLI for the host arch.
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            -o "dist/imgc-darwin_$(go env GOARCH)" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+          retention-days: 90
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

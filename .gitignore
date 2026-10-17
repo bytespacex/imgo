@@ -1,0 +1,18 @@
+# build outputs (go build / setup.sh / setup.cmd)
+/imgc
+/imgo
+/imgc-*
+/imgo-*
+/dist/
+*.test
+*.out
+
+# coverage / profiling
+coverage.*
+cpu.prof
+mem.prof
+
+# editor / OS noise
+*.swp
+*~
+.DS_Store
