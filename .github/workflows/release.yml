@@ -1,8 +1,10 @@
 # Build and release imgo / imgc for macOS, Windows and Linux in one workflow.
 #
 # Jobs:
-#   - linux  (ubuntu): cross-compile imgc to every target; build imgo for Linux
-#                  (cgo) and cross-compile imgo for Windows (purego).
+#   - linux  (ubuntu x64): cross-compile imgc to every target; build imgo for
+#                  Linux amd64 (cgo) and cross-compile imgo for Windows (purego).
+#   - linux-arm64 (ubuntu arm64): build imgo for Linux arm64 (cgo, needs an
+#                  arm64 host).
 #   - macos  (macOS):  build imgo for macOS (arm64 + amd64, needs cgo, must run
 #                  on a real Mac) and imgc for the host arch.
 #   - release:           gathers all artifacts, generates SHA256SUMS.txt and
@@ -78,6 +80,40 @@ jobs:
           path: dist/*
           retention-days: 90
 
+  # Linux GUI (imgo) needs cgo, so the arm64 build runs on an arm64 host.
+  # If your plan does not offer arm64 runners, drop this job (or build with a
+  # cross toolchain); imgc-linux_arm64 still comes from the linux job above.
+  linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1-mesa-dev libxcursor-dev libxi-dev libxinerama-dev \
+            libxrandr-dev libxxf86vm-dev libasound2-dev pkg-config xvfb
+
+      - name: Build imgo (Linux arm64)
+        run: |
+          VERSION=$(date +%y.%m.%d)
+          mkdir -p dist
+          go build -trimpath -tags gui \
+            -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo" \
+            -o dist/imgo-linux_arm64 .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-arm64
+          path: dist/*
+          retention-days: 90
+
   macos:
     runs-on: macos-latest
     steps:
@@ -121,7 +157,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [linux, macos]
+    needs: [linux, linux-arm64, macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

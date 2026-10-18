@@ -131,7 +131,7 @@ go build -tags gui -ldflags="-s -w -X main.buildVersion=26.10.18 -X main.appName
 
 ### Releases
 
-Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): on Ubuntu it runs `gofmt` / `go vet` / cross-compiles imgc (six targets) + imgo (Linux, Windows) with the GUI tests under Xvfb; on macOS it builds imgo (arm64 / amd64). It then creates a Release with every artifact plus `SHA256SUMS.txt`. Every binary is stamped with the build date as its version (`yy.mm.dd`, e.g. `26.10.18`).
+Pushing a `v*` tag triggers [`.github/workflows/release.yml`](.github/workflows/release.yml): on Ubuntu it runs `gofmt` / `go vet` / cross-compiles imgc (six targets) + imgo (Linux amd64, Windows) with the GUI tests under Xvfb; an arm64 Ubuntu runner builds imgo for Linux arm64; on macOS it builds imgo (arm64 / amd64). It then creates a Release with every artifact plus `SHA256SUMS.txt`. Every binary is stamped with the build date as its version (`yy.mm.dd`, e.g. `26.10.18`).
 
 ```sh
 git tag v0.1.0
