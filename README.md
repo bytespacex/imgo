@@ -26,7 +26,7 @@ One codebase builds two binaries, covering everything from terminal previews to 
 ### imgo — GUI viewer
 
 - **Formats** — the same pure-Go decoding and ffmpeg fallback as the CLI. GIF / APNG / Animated WebP play frame by frame honouring each format's own timing, dispose and blend rules; when the frames would exceed a 256 MB budget, playback falls back to the first frame.
-- **View** — fit-to-window by default (small images upscale, large ones shrink, aspect kept); `Space` toggles fit ↔ original; `0` is 1:1; `+` / `-` zoom around the image centre (`Shift` variants and the wheel zoom around the cursor); drag pans; `r` / `t` rotate 90°; `w` / `e` mirror. Rotation and mirrors reset when you change image.
+- **View** — fit-to-window by default (small images upscale, large ones shrink, aspect kept); `Space` toggles fit ↔ original; `0` is 1:1; `+` / `-` zoom around the image centre (`Shift` variants and the wheel zoom around the cursor); drag pans; `r` / `t` rotate 90°; `w` / `e` mirror; `s` switches smooth (linear) and crisp (nearest) scaling. Rotation and mirrors reset when you change image.
 - **Display adjustments** — `i` inverts (negative) and `<` / `>` scale brightness 0.1–3.0×. Both are display-only (a GPU colour matrix); disk pixels are untouched and both reset on image change.
 - **Transparency** — images with alpha are drawn over the classic light checkerboard (`#FFFFFF` / `#CCCCCC`) instead of black, so shadows and glows read correctly; the letterbox stays black.
 - **Cursor-locked panning** — a single click enters 1:1 and grabs the cursor so the image follows the mouse even at the screen edge; click again or press `ESC` / `q` to leave.
@@ -61,6 +61,7 @@ The same list lives inside the `?` help panel.
 | `r` / `t` | Rotate 90° clockwise / counter-clockwise (re-fits in fit mode) |
 | `w` / `e` | Mirror horizontally / flip vertically |
 | `i` | Negative (invert); display-only |
+| `s` | Smooth (linear) ↔ crisp (nearest) scaling; smooth by default, so scaled text and photos do not alias |
 | `<` / `>` | Brightness − / + (`Shift+,` / `Shift+.`; 0.1–3.0×, step 0.1, echoed in a tooltip) |
 | `←` / `→` | Previous / next image in the directory |
 | `k` / `j` | Previous / next image (vim keys, same as `←` / `→`) |

@@ -19,6 +19,7 @@
 //	r / t        rotate 90° clockwise / counter-clockwise
 //	w / e        mirror left-right / up-down
 //	i            toggle negative (invert; display-only)
+//	s            toggle smooth (linear) / crisp (nearest) scaling
 //	< / >        brightness down / up (Shift+, / Shift+.)
 //	\            slideshow (2s; [ / ] tune the interval)
 //	p            pause / resume animation playback
@@ -124,6 +125,7 @@ type viewer struct {
 	flipY         bool    // mirrored up-down
 	invert        bool    // negative: RGB flipped (display-only, pixels untouched)
 	bright        float64 // display brightness scale, 1 = neutral
+	smooth        bool    // linear filtering when scaling; false for crisp pixels
 	centered      bool    // image is centered; recomputed on every size change
 	atFit         bool    // current view is "fit to window" (Space returns to it)
 	dragging      bool
@@ -207,7 +209,7 @@ func runGUI(path string) {
 	if err != nil {
 		fatal(err)
 	}
-	v := &viewer{zoom: 1, winW: 1280, winH: 800, slideEvery: slideDefault, bright: brightNeutral}
+	v := &viewer{zoom: 1, winW: 1280, winH: 800, slideEvery: slideDefault, bright: brightNeutral, smooth: true}
 
 	// dir: collect images inside it; file: collect sibling images (for arrow navigation)
 	var dir string
@@ -1280,6 +1282,16 @@ func (v *viewer) Update() error {
 			v.tooltip("negative off")
 		}
 	}
+	// s: smooth scaling (linear) or crisp pixels (nearest). Smooth is the
+	// default because scaled-down photos and SVG labels otherwise alias.
+	if inpututil.IsKeyJustPressed(ebiten.KeyS) {
+		v.smooth = !v.smooth
+		if v.smooth {
+			v.tooltip("smooth scaling on")
+		} else {
+			v.tooltip("crisp pixels (nearest)")
+		}
+	}
 	// fullscreen: under Sway let the compositor do it. ebiten's own
 	// SetFullscreen leaves its internal size stuck at the fullscreen value on
 	// exit (WindowSize() and the canvas both keep reporting 2560x1440 while
@@ -1420,36 +1432,23 @@ func (v *viewer) zoomAt(cursor image.Point, delta float64) {
 	v.centered = false
 }
 
-// viewSize picks the size the user is actually seeing. ebiten reports the
-// window size and the canvas size separately and, around fullscreen
-// transitions, one of the two can lag behind or stay stale at the old
-// fullscreen size (verified on Sway: leaving fullscreen leaves both the window
-// and the canvas at 2560x1440 while the window is really 1276x698). In
-// fullscreen the visible size is the larger of the two; in a window the
-// smaller — and if a windowed session still reports exactly the fullscreen
-// size, that report is stale and the last windowed size is used instead.
+// viewSize is the size the user is actually seeing: the canvas size, which is
+// what Layout was told and what screen.Bounds() reports. ebiten's WindowSize()
+// is deliberately not consulted. On Wayland it can stay frozen at whatever
+// SetWindowSize asked for at startup — verified on Sway with a tiled window:
+// WindowSize() kept reporting the initial 1280x800 while the canvas was
+// 640x1404. Taking the smaller of the two there mixed a real width with a
+// stale height, so a fitted view swapped between 640x1404 and 640x800 every
+// frame: the image appeared to flicker and jump. (At half size the stale
+// height happened to be larger than the real one, so the minimum landed on the
+// real size and nothing moved.)
+//
+// A fullscreen transition can still leave the canvas reporting the old
+// fullscreen size; if that exact size was recorded while fullscreen, the last
+// known windowed size is used until the canvas catches up.
 func (v *viewer) viewSize(cw, ch int) (int, int) {
-	ww, wh := ebiten.WindowSize()
-	if ww <= 0 || wh <= 0 {
-		return cw, ch
-	}
-	if ebiten.IsFullscreen() {
-		if ww > cw {
-			cw = ww
-		}
-		if wh > ch {
-			ch = wh
-		}
-		return cw, ch
-	}
-	if ww < cw {
-		cw = ww
-	}
-	if wh < ch {
-		ch = wh
-	}
 	if v.savedW > 0 && cw == v.fullW && ch == v.fullH {
-		return v.savedW, v.savedH // never came back from fullscreen: stale
+		return v.savedW, v.savedH
 	}
 	return cw, ch
 }
@@ -1587,7 +1586,21 @@ func viewMatrix(w, h, rot int, flipX, flipY bool, zoom, offX, offY float64) *ebi
 // imageOp is viewMatrix for the current image and view state.
 func (v *viewer) imageOp() *ebiten.DrawImageOptions {
 	b := v.img.Bounds()
-	return viewMatrix(b.Dx(), b.Dy(), v.rot, v.flipX, v.flipY, v.zoom, v.offX, v.offY)
+	op := viewMatrix(b.Dx(), b.Dy(), v.rot, v.flipX, v.flipY, v.zoom, v.offX, v.offY)
+	op.Filter = v.scaleFilter()
+	return op
+}
+
+// scaleFilter picks the GPU sampling filter. Linear (the default) keeps text
+// and photographs smooth when the image is scaled; nearest is used at exactly
+// 1:1, where the centre offset can sit on a half pixel and linear filtering
+// would blur every texel, and is available for all zooms with "s" when crisp
+// pixels matter more than smooth edges.
+func (v *viewer) scaleFilter() ebiten.Filter {
+	if v.smooth && v.zoom != 1 {
+		return ebiten.FilterLinear
+	}
+	return ebiten.FilterNearest
 }
 
 // colorAltered reports whether the display color transform is doing anything

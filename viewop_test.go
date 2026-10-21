@@ -5,6 +5,8 @@ package main
 import (
 	"math"
 	"testing"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 // TestViewMatrix pins the draw matrix: every view state must land the image
@@ -47,5 +49,37 @@ func TestViewMatrix(t *testing.T) {
 			t.Errorf("%s: Apply(%v,%v) = (%v,%v), want (%v,%v)",
 				c.name, c.sx, c.sy, gx, gy, c.wantX, c.wantY)
 		}
+	}
+}
+
+// TestScaleFilter pins the smoothing default: scaled text and photos sample
+// linearly unless the user asks for crisp pixels with "s".
+func TestScaleFilter(t *testing.T) {
+	if got := (&viewer{smooth: true, zoom: 2}).scaleFilter(); got != ebiten.FilterLinear {
+		t.Errorf("smooth scaled filter = %v, want linear", got)
+	}
+	if got := (&viewer{smooth: true, zoom: 1}).scaleFilter(); got != ebiten.FilterNearest {
+		t.Errorf("1:1 filter = %v, want nearest (half-pixel centring must stay crisp)", got)
+	}
+	if got := (&viewer{smooth: false, zoom: 2}).scaleFilter(); got != ebiten.FilterNearest {
+		t.Errorf("crisp filter = %v, want nearest", got)
+	}
+}
+
+// TestViewSize pins that the canvas size is authoritative and that
+// ebiten.WindowSize() is ignored: on Wayland that call can stay frozen at the
+// startup size, and mixing it with the real canvas size made the image flicker
+// between two sizes every frame (a tiled 640x1404 window reported 1280x800).
+// The stale-fullscreen fallback must still return the last windowed size.
+func TestViewSize(t *testing.T) {
+	if w, h := (&viewer{}).viewSize(640, 1404); w != 640 || h != 1404 {
+		t.Errorf("viewSize(640,1404) = %dx%d, want the canvas size", w, h)
+	}
+	v := &viewer{savedW: 1276, savedH: 698, fullW: 2560, fullH: 1440}
+	if w, h := v.viewSize(2560, 1440); w != 1276 || h != 698 {
+		t.Errorf("viewSize of stale fullscreen size = %dx%d, want the saved window size", w, h)
+	}
+	if w, h := v.viewSize(800, 600); w != 800 || h != 600 {
+		t.Errorf("viewSize(800,600) = %dx%d, want the canvas size", w, h)
 	}
 }

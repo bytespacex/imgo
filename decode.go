@@ -20,8 +20,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 
-	"github.com/srwiley/oksvg"
-	"github.com/srwiley/rasterx"
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
@@ -71,35 +69,6 @@ func openDecode(path string, fn func(io.Reader) (image.Image, error)) (image.Ima
 	}
 	defer f.Close()
 	return fn(f)
-}
-
-// svgFile rasterizes with okSVG. SVG is vector; render up to maxDim.
-func svgFile(path string) (image.Image, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	icon, err := oksvg.ReadIconStream(f, oksvg.IgnoreErrorMode)
-	if err != nil {
-		return nil, fmt.Errorf("svg: %w", err)
-	}
-	const maxDim = 2048
-	w, h := int(icon.ViewBox.W), int(icon.ViewBox.H)
-	if w <= 0 || h <= 0 {
-		w, h = 256, 256
-	}
-	if w > maxDim || h > maxDim {
-		scale := float64(maxDim) / float64(max(w, h))
-		w, h = int(float64(w)*scale), int(float64(h)*scale)
-	}
-	icon.SetTarget(0, 0, float64(w), float64(h))
-	dst := image.NewNRGBA(image.Rect(0, 0, w, h))
-	scanner := rasterx.NewScannerGV(w, h, dst, dst.Bounds())
-	dasher := rasterx.NewDasher(w, h, scanner)
-	icon.Draw(dasher, 1)
-	return dst, nil
 }
 
 // ffmpegDecode converts the first frame to a PNG pipe via ffmpeg
