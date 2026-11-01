@@ -16,11 +16,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // buildVersion and appName are injected at build time via ldflags:
@@ -31,6 +33,10 @@ var (
 	buildVersion = "0.1.0"
 	appName      = "imgc"
 )
+
+// pdfStartPage is the 1-based page imgo should open a PDF on (from -p). Only
+// the file named on the command line honours it; loadPDF resets it to 1 after.
+var pdfStartPage = 1
 
 func main() {
 	var (
@@ -44,8 +50,14 @@ func main() {
 		probe   = flag.Bool("probe", true, "auto detect terminal capabilities")
 		version = flag.Bool("version", false, "print version")
 		warmup  = flag.Bool("warmup", false, "detect terminal caps in foreground, save to cache, exit")
+		page    = flag.Int("p", 1, "PDF page number (1-based; default 1)")
 	)
 	flag.Parse()
+
+	pdfStartPage = *page
+	if pdfStartPage < 1 {
+		pdfStartPage = 1
+	}
 
 	if *version {
 		fmt.Println(appName, buildVersion)
@@ -62,7 +74,7 @@ func main() {
 		return
 	}
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "usage: imgc [-W cols] [-H rows] [-f auto|sixel|symbols] <image>")
+		fmt.Fprintln(os.Stderr, "usage: imgc [-W cols] [-H rows] [-f auto|sixel|symbols] [-p page] <image>")
 		os.Exit(2)
 	}
 	// Important: fzf preview etc. run in a background process group; tcsetattr
@@ -72,11 +84,29 @@ func main() {
 	path := flag.Arg(0)
 
 	// ---------- 1. decode ----------
-	img, err := decodeFile(path)
-	if err != nil {
-		// not an image: draw nothing, exit 1 so caller can fall back to bat/cat
-		fmt.Fprintf(os.Stderr, "imgc: %s: %v\n", filepath.Base(path), err)
-		os.Exit(1)
+	ext := strings.ToLower(filepath.Ext(path))
+	var img image.Image
+	if ext == ".pdf" {
+		// render the requested page via poppler's pdftoppm (0 dpi = the 150
+		// default in decode.go). Exits 1 on failure so fzf/lf can fall back.
+		var err error
+		pg := *page
+		if pg < 1 {
+			pg = 1
+		}
+		img, err = pdfRenderPage(path, pg, 0)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "imgc: %s: %v\n", filepath.Base(path), err)
+			os.Exit(1)
+		}
+	} else {
+		var err error
+		img, err = decodeFile(path)
+		if err != nil {
+			// not an image: draw nothing, exit 1 so caller can fall back to bat/cat
+			fmt.Fprintf(os.Stderr, "imgc: %s: %v\n", filepath.Base(path), err)
+			os.Exit(1)
+		}
 	}
 
 	// ---------- 2. terminal capabilities ----------

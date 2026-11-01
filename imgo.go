@@ -112,6 +112,13 @@ type viewer struct {
 	img           *ebiten.Image
 	frames        []animFrame // animation frames; len>1 means animated
 	frameIdx      int
+	isPDF              bool // current file is a multi-page PDF (pages == frames)
+	pdfDPI             int  // raster resolution for PDF pages (0 = default 150)
+	pdfReq             chan pdfReq
+	pdfResult          chan pdfRendered
+	pdfPending         map[int]bool // page indices requested but not yet applied
+	pdfGen             int          // bumped on every load to discard stale results
+	pdfWorkerStarted   bool
 	frameNext     time.Time
 	animPaused    bool          // animation held: , and . step it a frame at a time
 	slide         bool          // slideshow: the next image comes on a timer
@@ -284,6 +291,13 @@ func siblingDirs(parent string) []string {
 
 func (v *viewer) load() error {
 	path := v.files[v.idx]
+	v.isPDF = false
+	// PDF: multi-page, rendered on demand into the existing frames model so
+	// , / . step through pages exactly like animation frames.
+	if strings.EqualFold(filepath.Ext(path), ".pdf") {
+		return v.loadPDF(path)
+	}
+	pdfStartPage = 1 // -p only applies to the command-line PDF; other files clear it
 	// animated formats (gif / apng / animated webp) first, static otherwise
 	if raw := decodeAnim(path); len(raw) > 0 {
 		v.frames = make([]animFrame, len(raw))
@@ -326,6 +340,166 @@ func (v *viewer) load() error {
 	v.fit()
 	ebiten.SetWindowTitle(fmt.Sprintf("imgo - %s", filepath.Base(path)))
 	return nil
+}
+
+// loadPDF opens a PDF as a multi-page document: one frame per page, rendered
+// lazily. We only rasterize what the viewer actually reaches, so a 500-page
+// file holds at most a few pages in memory at once. The document starts
+// paused on page 1, like a still, and , / . step through pages.
+func (v *viewer) loadPDF(path string) error {
+	total, err := pdfTotalPages(path)
+	if err != nil {
+		return err
+	}
+	if total < 1 {
+		return fmt.Errorf("pdf: no pages")
+	}
+	if v.pdfDPI == 0 {
+		v.pdfDPI = 150
+	}
+	if !v.pdfWorkerStarted {
+		v.pdfReq = make(chan pdfReq, 16)
+		v.pdfResult = make(chan pdfRendered, 16)
+		v.pdfPending = make(map[int]bool)
+		go v.pdfWorker()
+		v.pdfWorkerStarted = true
+	}
+	v.pdfGen++
+	v.pdfPending = make(map[int]bool)
+	v.isPDF = true
+	v.frames = make([]animFrame, total)
+	v.frameIdx = 0
+	// render first page now so something shows immediately; surface the real
+	// backend error (mutool or poppler) rather than a guess at which failed.
+	if err := v.ensurePage(0); err != nil {
+		return err
+	}
+	if v.frames[0].img == nil {
+		return fmt.Errorf("pdf: failed to render page 1")
+	}
+	v.img = v.frames[0].img
+	// honour -p from the command line once: jump to the requested page, then
+	// reset so later files opened with Left/Right start on page 1.
+	if pdfStartPage > 1 {
+		t := pdfStartPage - 1
+		if t >= 0 && t < len(v.frames) {
+			v.frameIdx = t
+			v.ensurePage(v.frameIdx)
+			v.img = v.frames[v.frameIdx].img
+		}
+		pdfStartPage = 1
+	}
+	v.frameNext = time.Now().Add(v.frameDelay())
+	v.animPaused = true // documents do not auto-play
+	v.rot = 0
+	v.flipX, v.flipY = false, false
+	v.invert = false
+	v.bright = brightNeutral
+	v.measDragging = false
+	v.fit()
+	ebiten.SetWindowTitle(fmt.Sprintf("imgo - %s", filepath.Base(path)))
+	return nil
+}
+
+// pdfReq asks the background worker to rasterize one page.
+// gen lets stale results (from a file we have since left) be discarded.
+type pdfReq struct {
+	gen  int
+	idx  int
+	path string
+	dpi  int
+}
+
+// pdfRendered is a worker's answer; gen must match the current file.
+type pdfRendered struct {
+	gen int
+	idx int
+	img image.Image
+	err error
+}
+
+// pdfWorker renders requested pages off the main thread so turning pages
+// never blocks on pdftoppm. Results come back through pdfResult and are
+// applied on the main thread by pdfDrain (ebiten textures must be made there).
+func (v *viewer) pdfWorker() {
+	for req := range v.pdfReq {
+		img, err := pdfRenderPage(req.path, req.idx+1, req.dpi)
+		v.pdfResult <- pdfRendered{gen: req.gen, idx: req.idx, img: img, err: err}
+	}
+}
+
+// pdfRequest asks the worker to render idx if it is not already loaded or in
+// flight. Main-thread only, so pdfPending needs no lock.
+func (v *viewer) pdfRequest(idx int) {
+	if !v.isPDF || idx < 0 || idx >= len(v.frames) {
+		return
+	}
+	if v.frames[idx].img != nil || v.pdfPending[idx] {
+		return
+	}
+	v.pdfPending[idx] = true
+	select {
+	case v.pdfReq <- pdfReq{gen: v.pdfGen, idx: idx, path: v.files[v.idx], dpi: v.pdfDPI}:
+	default:
+		// queue full: drop the request, it will be re-issued by the next
+		// ensurePage so we never block the render frame here
+		delete(v.pdfPending, idx)
+	}
+}
+
+// pdfDrain applies any finished renders. Called every frame from Update.
+func (v *viewer) pdfDrain() {
+	for {
+		select {
+		case r := <-v.pdfResult:
+			delete(v.pdfPending, r.idx)
+			if r.gen != v.pdfGen {
+				continue // file changed while this was rendering
+			}
+			if r.err != nil {
+				v.tooltip("pdf: " + r.err.Error())
+				continue
+			}
+			if r.idx >= 0 && r.idx < len(v.frames) && v.frames[r.idx].img == nil {
+				v.frames[r.idx] = animFrame{img: ebiten.NewImageFromImage(r.img)}
+			}
+		default:
+			return
+		}
+	}
+}
+
+// ensurePage makes sure page idx is displayed: if missing it is rendered
+// synchronously (only slow on a first view or a far jump), then the two pages
+// ahead and one behind are requested asynchronously so normal reading never
+// waits on pdftoppm.
+func (v *viewer) ensurePage(idx int) error {
+	if !v.isPDF || idx < 0 || idx >= len(v.frames) {
+		return nil
+	}
+	if v.frames[idx].img == nil {
+		img, err := pdfRenderPage(v.files[v.idx], idx+1, v.pdfDPI)
+		if err != nil {
+			v.tooltip("pdf: " + err.Error())
+			return err
+		}
+		v.frames[idx] = animFrame{img: ebiten.NewImageFromImage(img)}
+	}
+	v.pdfRequest(idx - 1)
+	v.pdfRequest(idx + 1)
+	v.pdfRequest(idx + 2) // one extra lead page smooths holding ',' / '.'
+	return nil
+}
+
+// gotoPage jumps to an absolute page (Home / End) and shows it.
+func (v *viewer) gotoPage(idx int) {
+	if !v.isPDF || idx < 0 || idx >= len(v.frames) {
+		return
+	}
+	v.animPaused = true
+	v.frameIdx = idx
+	v.ensurePage(v.frameIdx)
+	v.img = v.frames[v.frameIdx].img
 }
 
 // step moves to a neighbouring image (wrapping at both ends) and restarts the
@@ -968,6 +1142,8 @@ func (v *viewer) Update() error {
 		v.listSkipRunes = false
 		typed = nil
 	}
+	// apply any PDF pages the background worker finished since last frame
+	v.pdfDrain()
 	// help overlay: ? (Shift+/) or F1. While it is open it owns the keyboard,
 	// so reading it cannot zoom, pan or flip pages by accident.
 	if inpututil.IsKeyJustPressed(ebiten.KeyF1) ||
@@ -1126,12 +1302,27 @@ func (v *viewer) Update() error {
 		}
 		return ebiten.Termination
 	}
-	// navigate: arrows, or vim's k / j for the other hand
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) || inpututil.IsKeyJustPressed(ebiten.KeyK) {
+	// navigate: arrows, or vim's k / j for the other hand.
+	// Shift+K / Shift+J step PDF pages instead of moving between files.
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
 		v.step(-1)
 	}
-	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) || inpututil.IsKeyJustPressed(ebiten.KeyJ) {
+	if inpututil.IsKeyJustPressed(ebiten.KeyArrowRight) {
 		v.step(1)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyK) {
+		if ebiten.IsKeyPressed(ebiten.KeyShift) && v.isPDF {
+			v.stepFrame(-1)
+		} else {
+			v.step(-1)
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
+		if ebiten.IsKeyPressed(ebiten.KeyShift) && v.isPDF {
+			v.stepFrame(1)
+		} else {
+			v.step(1)
+		}
 	}
 	// PgUp / PgDn: previous / next sibling directory with images
 	if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
@@ -1147,7 +1338,7 @@ func (v *viewer) Update() error {
 	// playback continues from here instead of jumping ahead. p yields to Ctrl
 	// so Ctrl+P (copy path) is never read as a pause.
 	if inpututil.IsKeyJustPressed(ebiten.KeyP) &&
-		!ebiten.IsKeyPressed(ebiten.KeyControl) && len(v.frames) > 1 {
+		!ebiten.IsKeyPressed(ebiten.KeyControl) && !v.isPDF && len(v.frames) > 1 {
 		v.animPaused = !v.animPaused
 		if !v.animPaused {
 			v.frameNext = time.Now().Add(v.frameDelay())
@@ -1165,6 +1356,15 @@ func (v *viewer) Update() error {
 			v.adjustBright(brightStep)
 		} else {
 			v.stepFrame(1)
+		}
+	}
+	// Home / End jump to the first / last PDF page (no-op for plain images).
+	if v.isPDF {
+		if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
+			v.gotoPage(0)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
+			v.gotoPage(len(v.frames) - 1)
 		}
 	}
 	// slideshow: \ toggles it, [ / ] shorten or extend the interval. While
@@ -1362,7 +1562,7 @@ func (v *viewer) Update() error {
 	}
 	// animation playback: one frame at a time, each with its own delay. While
 	// paused (p) the clock is held and , and . step the frames by hand.
-	if len(v.frames) > 1 && !v.animPaused && time.Now().After(v.frameNext) {
+	if len(v.frames) > 1 && !v.isPDF && !v.animPaused && time.Now().After(v.frameNext) {
 		v.frameIdx = (v.frameIdx + 1) % len(v.frames)
 		f := v.frames[v.frameIdx]
 		v.img = f.img
@@ -1392,6 +1592,7 @@ func (v *viewer) stepFrame(delta int) {
 	}
 	v.animPaused = true
 	v.frameIdx = (v.frameIdx + delta + len(v.frames)) % len(v.frames)
+	v.ensurePage(v.frameIdx)
 	f := v.frames[v.frameIdx]
 	v.img = f.img
 }
@@ -1682,8 +1883,12 @@ func (v *viewer) statusLine() (prefix, name string) {
 	if v.img == nil {
 		return "", ""
 	}
+	name = filepath.Base(p)
+	if v.isPDF && len(v.frames) > 0 {
+		name = fmt.Sprintf("%s (p%d/%d)", name, v.frameIdx+1, len(v.frames))
+	}
 	b := v.img.Bounds()
-	return statusPrefix(v.idx, len(v.files), v.statusSize, b.Dx(), b.Dy()), filepath.Base(p)
+	return statusPrefix(v.idx, len(v.files), v.statusSize, b.Dx(), b.Dy()), name
 }
 
 // statusPrefix renders the counter / file-size / resolution group shown at the

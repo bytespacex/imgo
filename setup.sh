@@ -1,6 +1,7 @@
 #!/bin/sh
-# Cross-compile every supported target into ./dist, then offer to move this
-# platform's imgc + imgo into ~/bn and (on Linux) register imgo.desktop.
+# Build THIS platform's imgc + imgo into ./dist, then offer to move them into
+# ~/bn and (on Linux) register imgo.desktop as the default handler for image
+# AND pdf formats.
 #
 # POSIX sh, so it runs on any Linux / macOS without zsh. Windows: use setup.cmd.
 set -e
@@ -13,49 +14,38 @@ mkdir -p "$dist"
 
 host_os="$(go env GOOS)"
 host_arch="$(go env GOARCH)"
+ext=
+if [ "$host_os" = windows ]; then ext=.exe; fi
 
-echo "Products will be generated into ./dist ($dist)"
-echo
-
-# imgc is pure Go: every platform cross-compiles.
+echo "Building for $host_os/$host_arch into ./dist"
 echo "  imgc ..."
-for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-    os=${target%%/*}
-    arch=${target#*/}
-    ext=
-    if [ "$os" = windows ]; then ext=.exe; fi
-    name="imgc-${os}_${arch}${ext}"
-    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
-        go build -trimpath -ldflags="-s -w -X main.buildVersion=$VERSION" -o "$dist/$name" .
-    echo "    $name"
-done
-
-# imgo: Windows cross-builds (Ebitengine uses purego there, no cgo) plus the host
-# platform natively. A Linux / macOS GUI needs cgo, so it cannot be cross-built.
+CGO_ENABLED=0 GOOS="$host_os" GOARCH="$host_arch" \
+    go build -trimpath -ldflags="-s -w -X main.buildVersion=$VERSION" \
+    -o "$dist/imgc-${host_os}_${host_arch}${ext}" .
 echo "  imgo ..."
-for arch in amd64 arm64; do
-    name="imgo-windows_${arch}.exe"
-    CGO_ENABLED=0 GOOS=windows GOARCH="$arch" \
-        go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo -H=windowsgui" -o "$dist/$name" .
-    echo "    $name"
-done
-if [ "$host_os" != windows ]; then
-    name="imgo-${host_os}_${host_arch}"
-    go build -trimpath -tags gui -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo" -o "$dist/$name" .
-    echo "    $name"
+if [ "$host_os" = windows ]; then
+    # Ebitengine uses purego on Windows, so it cross-builds without cgo.
+    CGO_ENABLED=0 GOOS=windows GOARCH="$host_arch" \
+        go build -trimpath -tags gui \
+        -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo -H=windowsgui" \
+        -o "$dist/imgo-${host_os}_${host_arch}${ext}" .
+else
+    # A Linux / macOS GUI needs cgo, so build natively on the host.
+    go build -trimpath -tags gui \
+        -ldflags="-s -w -X main.buildVersion=$VERSION -X main.appName=imgo" \
+        -o "$dist/imgo-${host_os}_${host_arch}${ext}" .
 fi
 echo
 
 # Move this platform's pair into ~/bn and drop dist (default: yes).
-printf 'Move this platform (%s/%s) imgc + imgo to ~/bn and delete dist/? [Y/n] ' "$host_os" "$host_arch"
+printf 'Move this platform (%s/%s) imgc + imgo to ~/bn and delete dist/? [Y/n] ' \
+    "$host_os" "$host_arch"
 read -r ans
 case "$ans" in
 n|N)
     echo "Kept $dist"
     ;;
 *)
-    ext=
-    if [ "$host_os" = windows ]; then ext=.exe; fi
     mkdir -p "$HOME/bn"
     mv "$dist/imgc-${host_os}_${host_arch}${ext}" "$HOME/bn/imgc${ext}"
     if [ -f "$dist/imgo-${host_os}_${host_arch}${ext}" ]; then
@@ -68,7 +58,7 @@ esac
 
 # Desktop entry + default file associations (Linux only; default: no).
 if [ "$(uname -s)" = Linux ]; then
-    printf 'Associate image formats (desktop entry + default handler)? [y/N] '
+    printf 'Associate image + PDF formats (desktop entry + default handler)? [y/N] '
     read -r ans
     case "$ans" in
     y|Y)
@@ -84,15 +74,16 @@ Categories=Graphics;Viewer;
 StartupNotify=true
 Name=imgo
 GenericName=Image Viewer
-MimeType=image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/x-icon;image/svg+xml;image/avif;image/heic;image/heif;image/jxl;
+MimeType=image/png;image/jpeg;image/gif;image/webp;image/bmp;image/tiff;image/x-icon;image/svg+xml;image/avif;image/heic;image/heif;image/jxl;application/pdf;
 EOF
         update-desktop-database "$apps" 2>/dev/null || true
-        # set imgo as the default handler for all image types
+        # set imgo as the default handler for all image types and PDF
         for m in image/png image/jpeg image/gif image/webp image/bmp image/tiff \
-                 image/x-icon image/svg+xml image/avif image/heic image/heif image/jxl; do
+                 image/x-icon image/svg+xml image/avif image/heic image/heif image/jxl \
+                 application/pdf; do
             xdg-mime default imgo.desktop "$m"
         done
-        echo "Installed: $apps/imgo.desktop (default handler set for all image types)"
+        echo "Installed: $apps/imgo.desktop (default handler set for all image + PDF types)"
         ;;
     *)
         echo "Skipped format association"

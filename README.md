@@ -20,7 +20,7 @@ One codebase builds two binaries, covering everything from terminal previews to 
 - **Native Sixel** — foot and tmux 3.8+ parse it directly; no `allow-passthrough` needed.
 - **Automatic cell sizing** — scales to the terminal's real character-cell pixels and keeps the aspect ratio. Probe chain: `IMGO_CELL` → `TIOCGWINSZ` → cache → `CSI 16t` (see [Cell pixel resolution](#cell-pixel-resolution)); no manual pixel values.
 - **Pure-Go decoding** — png / jpeg / gif / webp / tiff / bmp / ico / svg.
-- **External fallback** — avif / heic / heif / jxl are piped through ffmpeg with a 5 s timeout.
+- **External fallback** — avif / heic / heif / jxl are piped through ffmpeg with a 5 s timeout. PDF is rendered by an external tool: **mutool** (MuPDF) when present, otherwise **poppler-utils** (`pdftoppm` + `pdfinfo`) as a fallback — override with `IMGO_PDF=mutool|poppler|auto`. `imgo` shows the whole document as frames — `,` / `.` step pages, `J` / `K` (Shift+j/k) step pages, `Home` / `End` jump to first/last, and the status bar reads `name (p3/120)`; pages render lazily so a large PDF keeps only a few in memory. `imgo -p <n>` opens on a given page. `imgc` previews a single page via `-p <n>` (default 1).
 - **Graceful degradation** — terminals without Sixel get Unicode half-blocks; an undecodable file exits with code `1` so callers can fall back to `bat` / `cat`.
 
 ### imgo — GUI viewer
@@ -69,7 +69,9 @@ The same list lives inside the `?` help panel.
 | `\` | Slideshow toggle (2 s default; the status bar shows `[slide mode-2.5s]` and darkens) |
 | `[` / `]` | Slideshow interval − / + 0.5 s (0.5–10 s, while the slideshow runs) |
 | `p` | Pause / resume animation playback |
-| `,` / `.` | Step one animation frame back / forward (pauses first, wraps at the ends) |
+| `,` / `.` | Step one animation frame back / forward (pauses first, wraps at the ends); for PDFs these step pages |
+| `J` / `K` | Next / previous **PDF page** (`Shift`+`j` / `Shift`+`k`; PDF only) |
+| `Home` / `End` | First / last **PDF page** (PDF only) |
 | `d` | Move the current image to the trash (advances; deleting the last image closes the window) |
 | `m` / `M` | Copy / move the image into the `imgo/` subdirectory beside it (collisions get `-1`, `-2`; `M` advances like delete; the tooltip reads `copied to imgo/<name>`, or `moved to …` for `M`) |
 | `o` | Open with an external program (`IMGO_OPEN` list; type to locate, a unique match launches, `Enter` opens, `Esc` / `q` cancels) |
@@ -165,6 +167,8 @@ imgo ~/Pictures/      # open a directory at the first image; ←→ walk the who
 |---|---|---|
 | `-f` | `auto` | Output mode: `auto` (detect), `sixel`, `symbols` |
 | `-W` `-H` | — | Preview width / height in cells; when both are given the image is sized to the grid |
+| `-p` | `1` | PDF page number (1-based) for `imgc` previews; ignored for other formats |
+| `IMGO_PDF` | `auto` | PDF rasteriser: `auto` prefers `mutool` (MuPDF) and transparently falls back to `poppler-utils` (`pdftoppm` + `pdfinfo`) if it fails; set `mutool` or `poppler` to force one |
 | `-colors` | `256` | Sixel palette size (2–256) |
 | `-dither` | `true` | Floyd–Steinberg dithering; `-dither=false` trades quality for speed |
 | `-cw` `-ch` | auto | Set the cell pixel size explicitly (highest priority) |
@@ -204,7 +208,7 @@ esac
 ### fzf
 
 ```sh
-fd -t f -e jpg -e png -e webp -e gif -e avif -e svg | \
+fd -t f -e jpg -e png -e webp -e gif -e avif -e svg -e pdf | \
   fzf --preview="imgc -f sixel -W \$FZF_PREVIEW_COLUMNS -H \$FZF_PREVIEW_LINES {}" \
       --preview-window="bottom:60%"
 ```
@@ -248,6 +252,16 @@ Ebitengine's built-in fullscreen is unreliable under Wayland / Sway: after toggl
 
 Set `IMGO_DEBUG=1` to print per-frame size / zoom / offset when chasing resize bugs.
 
+### PDF: dual backend, lazy rendering
+
+`imgo` and `imgc` view PDFs by rasterising each page with an external tool — the Go binary never links any PDF library (so there is no AGPL / commercial exposure from MuPDF's library; only its CLI is shelled out to).
+
+- **Backends** — **mutool** (MuPDF) is preferred when present: it handles more PDF features (transparency, JPEG2000 / JBIG2, CMYK) that poppler sometimes chokes on, and it is a single binary. **poppler-utils** (`pdftoppm` + `pdfinfo`) is the fallback. Both are invoked as subprocesses, never linked.
+- **Auto-detection & fallback** — with `IMGO_PDF=auto` (the default) the first backend found is used; if a render or page-count call fails on the active backend, imgo transparently retries the other one and sticks to whichever worked for the rest of the session. Set `IMGO_PDF=mutool` or `IMGO_PDF=poppler` to pin a backend and disable the fallback.
+- **Lazy, cached rendering** — `imgo` does not rasterise the whole document up front. It renders the current page synchronously (so something appears immediately) and prefetches the neighbouring pages on a background worker, so turning pages never blocks on the rasteriser. A 1000-page PDF holds only a few decoded pages in memory at once.
+- **Pages as frames** — each PDF page is one item in the same `frames` model used by animations, so `,` / `.` (and `J` / `K`, `Home` / `End`) step through pages exactly like animation frames. The status bar shows `name (p3/120)`.
+- **Page selection** — `imgo -p <n>` and `imgc -p <n>` open / preview a given 1-based page (default 1); out-of-range values are clamped to 1.
+
 ## Project layout
 
 A single `main` package with flat source files; GUI code is gated by build tags. There is also one tiny `x11quiet` subpackage (compiled for GUI builds only):
@@ -257,7 +271,7 @@ imgc.go           CLI entry: flag parsing, size conversion, mode selection
 capability.go      Terminal capabilities: cell size / DA1 Sixel probe, cached to disk
 platform_unix.go      //go:build !windows — ignore SIGTTOU/SIGTTIN; cell size from the tty's ws_xpixel
 platform_windows.go   //go:build windows  — no-op counterpart; cell size via GetCurrentConsoleFontEx
-decode.go          Per-format decoders + ffmpeg fallback (shared by CLI / GUI)
+decode.go          Per-format decoders + ffmpeg fallback; PDF rasterisation via mutool / poppler (shared by CLI / GUI)
 render.go          CatmullRom scaling, go-sixel encoding, half-block fallback
 imgo.go            //go:build gui    — the Ebitengine viewer (also blank-imports x11quiet)
 font.go            //go:build gui    — font discovery (fc-match + per-OS paths + TTC parsing), help panel and status bar
