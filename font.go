@@ -58,6 +58,7 @@ var helpRows = [][2]string{
 	{"p", "pause animation"},
 	{", / .", "step animation back / on (PDF pages)"},
 	{"J / K", "next / prev page (PDF; shift+j / k)"},
+	{"↑ / ↓", "prev / next page (PDF)"},
 	{"home / end", "first / last page (PDF)"},
 	{"d", "delete (to trash)"},
 	{"m / M", "copy / move to imgo/"},

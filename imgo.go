@@ -1358,13 +1358,22 @@ func (v *viewer) Update() error {
 			v.stepFrame(1)
 		}
 	}
-	// Home / End jump to the first / last PDF page (no-op for plain images).
+	// Home / End jump to the first / last PDF page; ArrowUp / ArrowDown turn
+	// the page (Up = previous, Down = next). All are no-ops for plain images,
+	// leaving ←/→ for file navigation. (Up/Down are free in the plain view, so
+	// they were chosen for paging rather than clashing with file movement.)
 	if v.isPDF {
 		if inpututil.IsKeyJustPressed(ebiten.KeyHome) {
 			v.gotoPage(0)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyEnd) {
 			v.gotoPage(len(v.frames) - 1)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowUp) {
+			v.stepFrame(-1)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			v.stepFrame(1)
 		}
 	}
 	// slideshow: \ toggles it, [ / ] shorten or extend the interval. While
@@ -1884,19 +1893,29 @@ func (v *viewer) statusLine() (prefix, name string) {
 		return "", ""
 	}
 	name = filepath.Base(p)
-	if v.isPDF && len(v.frames) > 0 {
-		name = fmt.Sprintf("%s (p%d/%d)", name, v.frameIdx+1, len(v.frames))
-	}
 	b := v.img.Bounds()
-	return statusPrefix(v.idx, len(v.files), v.statusSize, b.Dx(), b.Dy()), name
+	// PDF page counter lives in the blue prefix group, right after the file
+	// counter: "[1/822][p3/120][2.3M][1920x1080]". It is blue like the rest
+	// of the group (drawn with helpKey) rather than the grey file name.
+	page := ""
+	if v.isPDF && len(v.frames) > 0 {
+		page = fmt.Sprintf("[p%d/%d]", v.frameIdx+1, len(v.frames))
+	}
+	prefix = statusPrefix(v.idx, len(v.files), v.statusSize, b.Dx(), b.Dy(), page)
+	return prefix, name
 }
 
 // statusPrefix renders the counter / file-size / resolution group shown at the
 // top of the window: "[1/822][2.3M][1920x1080]". The counter is the position in
 // the list, the size the file on disk, and the WxH the picture itself — the
-// pixel count is what the eye cares about, the disk size is just context.
-func statusPrefix(idx, total int, size string, w, h int) string {
-	return fmt.Sprintf("[%d/%d][%s][%dx%d]", idx+1, total, size, w, h)
+// pixel count is what the eye cares about, the disk size is just context. page,
+// when non-empty (a PDF), is a "[pN/total]" counter inserted right after the
+// file counter so the two counts sit together; it shares the group's colour.
+func statusPrefix(idx, total int, size string, w, h int, page string) string {
+	if page == "" {
+		return fmt.Sprintf("[%d/%d][%s][%dx%d]", idx+1, total, size, w, h)
+	}
+	return fmt.Sprintf("[%d/%d]%s[%s][%dx%d]", idx+1, total, page, size, w, h)
 }
 
 // fmtSize is the file size in the units the status line shows (M for
