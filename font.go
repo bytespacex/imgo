@@ -69,12 +69,31 @@ var helpRows = [][2]string{
 	{"ctrl+p / ctrl+u", "copy path / file URI"},
 }
 
+// helpRepoText is the clickable project link drawn as a footer at the bottom
+// of the help panel; helpRepoURL is what a click opens in the system browser.
+const helpRepoText = "github.com/bytespacex/imgo"
+const helpRepoURL = "https://github.com/bytespacex/imgo"
+
+// helpLinkRect is the clickable rectangle of the project link, in the help
+// panel's final (downsampled) image coordinates. renderHelp sets it every time
+// it draws; the viewer offsets it by the panel's on-screen position to hit-test.
+var helpLinkRect image.Rectangle
+
+// helpFooterH is the layout-pixel height of that link footer (one row tall).
+// Both renderHelp and helpVisibleRows subtract it so the link never overlaps
+// the scrolling key table.
+func helpFooterH(rowH int) int {
+	return rowH
+}
+
+
 var (
 	helpBG     = color.RGBA{14, 15, 20, 204} // 80% opaque
 	helpBorder = color.RGBA{80, 85, 100, 255}
 	helpTitle  = color.RGBA{246, 246, 249, 255}
 	helpKey    = color.RGBA{125, 190, 255, 255}
 	helpDesc   = color.RGBA{208, 210, 219, 255}
+	helpLink   = color.RGBA{110, 175, 255, 255} // clickable project link
 
 	// scroll bar down the panel's right edge while the list is taller than
 	// the window: a faint track and a thumb sized like the visible window.
@@ -345,7 +364,8 @@ func helpVisibleRows(bodySize, availH int) int {
 	if rowH <= 0 || availH <= 0 {
 		return len(helpRows)
 	}
-	n := ((availH-helpMargin)*panelScale - header - 20*panelScale) / rowH
+	footer := helpFooterH(rowH)
+	n := ((availH-helpMargin)*panelScale - header - footer - 20*panelScale) / rowH
 	if n < 1 {
 		n = 1
 	}
@@ -417,9 +437,14 @@ func renderHelp(bodySize, scroll, availH int) *image.RGBA {
 	if titleW > contentW {
 		contentW = titleW
 	}
+	// the clickable project link footer sits below the table and must fit
+	if w := bodyFace.measure(helpRepoText).Ceil(); w > contentW {
+		contentW = w
+	}
 
+	footer := helpFooterH(rowH)
 	pw := contentW + 2*padX
-	ph := header + rows*rowH + padY
+	ph := header + rows*rowH + footer + padY
 
 	img := image.NewRGBA(image.Rect(0, 0, pw, ph))
 	roundRect(img, 0, 0, pw, ph, rad, helpBG, helpBorder)
@@ -434,6 +459,18 @@ func renderHelp(bodySize, scroll, availH int) *image.RGBA {
 		bodyFace.draw(img, r[1], padX+keyW+keyGap, y, helpDesc)
 		y += rowH
 	}
+	// clickable project link footer (see viewer.helpLinkScreen / openURL),
+	// centred horizontally at the bottom of the panel.
+	fy0 := header + rows*rowH
+	ly := fy0 + footer/2 + ascent/2
+	linkW := bodyFace.measure(helpRepoText).Ceil()
+	linkX := (pw - linkW) / 2
+	bodyFace.draw(img, helpRepoText, linkX, ly, helpLink)
+	uY := ly + bodyFace.metrics().Descent.Ceil() + s
+	roundRect(img, linkX, uY, linkX+linkW, uY+2*s, s, helpLink, helpLink)
+	// record the link's clickable band (whole footer width) in final,
+	// downsampled coordinates so the viewer can offset it to the screen.
+	helpLinkRect = image.Rect(padX/s, fy0/s, (pw-padX)/s, (fy0+footer)/s)
 	// scroll bar over the row area only, and only while rows are hidden
 	if rows < len(helpRows) {
 		x0, x1 := pw-16*s, pw-12*s

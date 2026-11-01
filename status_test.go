@@ -22,8 +22,8 @@ func TestStatusPrefix(t *testing.T) {
 		{0, 3, "98B", 1, 1, "[1/3][98B][1x1]"},
 	}
 	for _, c := range cases {
-		if got := statusPrefix(c.idx, c.total, c.size, c.w, c.h); got != c.want {
-			t.Errorf("statusPrefix(%d, %d, %q, %d, %d) = %q, want %q", c.idx, c.total, c.size, c.w, c.h, got, c.want)
+		if got := statusPrefix(c.idx, c.total, c.size, c.w, c.h, ""); got != c.want {
+			t.Errorf("statusPrefix(%d, %d, %q, %d, %d, %q) = %q, want %q", c.idx, c.total, c.size, c.w, c.h, "", got, c.want)
 		}
 	}
 }

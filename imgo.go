@@ -156,6 +156,7 @@ type viewer struct {
 	fullH         int
 	showHelp      bool          // help overlay visible
 	helpScroll    int           // first help row shown while the list scrolls
+	helpLinkScreen image.Rectangle // on-screen rect of the clickable repo link
 	dim           *ebiten.Image // cached translucent overlay, rebuilt on resize
 	checkImg      *ebiten.Image // cached transparency checkerboard, rebuilt on resize
 	helpImg       *ebiten.Image // rendered help panel, system font
@@ -209,6 +210,28 @@ type openProgram struct {
 type animFrame struct {
 	img   *ebiten.Image
 	delay time.Duration
+}
+
+// openURL opens url in the system default browser. It is used by the
+// clickable project link in the help panel; the process is detached so it does
+// not block or get reaped by the viewer.
+func openURL(url string) error {
+	var cmd string
+	var args []string
+	switch runtime.GOOS {
+	case "darwin":
+		cmd, args = "open", []string{url}
+	case "windows":
+		cmd, args = "cmd", []string{"/c", "start", "", url}
+	default: // linux / bsd / others
+		cmd, args = "xdg-open", []string{url}
+	}
+	c := exec.Command(cmd, args...)
+	if err := c.Start(); err != nil {
+		return err
+	}
+	go c.Wait()
+	return nil
 }
 
 func runGUI(path string) {
@@ -1206,6 +1229,19 @@ func (v *viewer) Update() error {
 			}
 			if v.helpScroll < 0 {
 				v.helpScroll = 0
+			}
+		}
+		// a left click on the project link (panel footer) opens it in the
+		// system browser; clicks elsewhere are ignored so the panel stays up.
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			mx, my := ebiten.CursorPosition()
+			r := v.helpLinkScreen
+			if mx >= r.Min.X && mx < r.Max.X && my >= r.Min.Y && my < r.Max.Y {
+				if err := openURL(helpRepoURL); err != nil {
+					v.tooltip("open url: " + err.Error())
+				} else {
+					v.tooltip("opening " + helpRepoURL)
+				}
 			}
 		}
 		return nil
@@ -2215,8 +2251,13 @@ func (v *viewer) drawHelp(screen *ebiten.Image) {
 		return
 	}
 	b := v.helpImg.Bounds()
+	ox := (w - b.Dx()) / 2
+	oy := (h - b.Dy()) / 2
+	// the repo link is drawn in panel-local coordinates; offset to the screen
+	// so a click can be hit-tested against helpLinkScreen.
+	v.helpLinkScreen = helpLinkRect.Add(image.Pt(ox, oy))
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64((w-b.Dx())/2), float64((h-b.Dy())/2))
+	op.GeoM.Translate(float64(ox), float64(oy))
 	screen.DrawImage(v.helpImg, op)
 }
 
