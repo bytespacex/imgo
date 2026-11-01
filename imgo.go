@@ -1665,7 +1665,10 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 }
 
 // statusLine reports the top-corner status as (counter, file name): the
-// "[1/822][2.3M]" prefix and the base name it labels.
+// "[1/822][2.3M][1920x1080]" prefix and the base name it labels. The counter
+// leads, the file size follows, and the current image's pixel dimensions
+// close the group: the size says how big the file is on disk, the WxH says how
+// many pixels the picture really has, so the pair fits one glance.
 func (v *viewer) statusLine() (prefix, name string) {
 	if len(v.files) == 0 || v.idx >= len(v.files) {
 		return "", ""
@@ -1676,7 +1679,19 @@ func (v *viewer) statusLine() (prefix, name string) {
 	if v.statusPath != p || v.statusSize == "" {
 		v.statusPath, v.statusSize = p, fmtSize(p)
 	}
-	return fmt.Sprintf("[%d/%d][%s]", v.idx+1, len(v.files), v.statusSize), filepath.Base(p)
+	if v.img == nil {
+		return "", ""
+	}
+	b := v.img.Bounds()
+	return statusPrefix(v.idx, len(v.files), v.statusSize, b.Dx(), b.Dy()), filepath.Base(p)
+}
+
+// statusPrefix renders the counter / file-size / resolution group shown at the
+// top of the window: "[1/822][2.3M][1920x1080]". The counter is the position in
+// the list, the size the file on disk, and the WxH the picture itself — the
+// pixel count is what the eye cares about, the disk size is just context.
+func statusPrefix(idx, total int, size string, w, h int) string {
+	return fmt.Sprintf("[%d/%d][%s][%dx%d]", idx+1, total, size, w, h)
 }
 
 // fmtSize is the file size in the units the status line shows (M for
@@ -1699,7 +1714,7 @@ func fmtSize(p string) string {
 	}
 }
 
-// drawStatus paints "[1/822][2.3M] name.png" on a translucent, slightly
+// drawStatus paints "[1/822][2.3M][1920x1080] name.png" on a translucent, slightly
 // rounded panel at the top centre of the window, on top of everything
 // including the help overlay, so the current file is identifiable at any time
 // instead of only while the help panel is open.
