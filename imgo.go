@@ -1150,6 +1150,20 @@ func (v *viewer) center() {
 	v.offY = (float64(v.winH) - ih*v.zoom) / 2
 }
 
+// pan shifts the view by dx, dy screen pixels (keyboard panning, vim-style
+// H/J/K/L). It mirrors the drag / click pan: the offsets are applied directly
+// by the view transform, and the panned state is recorded (atFit / centered
+// cleared) so a later rotation or resize does not silently re-center it.
+func (v *viewer) pan(dx, dy int) {
+	if v.img == nil {
+		return
+	}
+	v.atFit = false
+	v.centered = false
+	v.offX += float64(dx)
+	v.offY += float64(dy)
+}
+
 func (v *viewer) Update() error {
 	// Drain the text-input queue every frame. A keystroke's rune is delivered
 	// one tick after the key event, so the 'o' that opens the launcher would
@@ -1339,7 +1353,11 @@ func (v *viewer) Update() error {
 		return ebiten.Termination
 	}
 	// navigate: arrows, or vim's k / j for the other hand.
-	// Shift+K / Shift+J step PDF pages instead of moving between files.
+	// Shift+h/j/k/l pan the view (vim-style left/down/up/right) when the image
+	// overflows the window; plain k/j still move between files. PDF paging, which
+	// Shift+j/k used to do, now lives on ↑/↓ and ,/. (plain, no shift).
+	panX := v.winW / 12
+	panY := v.winH / 12
 	if inpututil.IsKeyJustPressed(ebiten.KeyArrowLeft) {
 		v.step(-1)
 	}
@@ -1347,18 +1365,24 @@ func (v *viewer) Update() error {
 		v.step(1)
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyK) {
-		if ebiten.IsKeyPressed(ebiten.KeyShift) && v.isPDF {
-			v.stepFrame(-1)
+		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+			v.pan(0, -panY) // pan up
 		} else {
 			v.step(-1)
 		}
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
-		if ebiten.IsKeyPressed(ebiten.KeyShift) && v.isPDF {
-			v.stepFrame(1)
+		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+			v.pan(0, panY) // pan down
 		} else {
 			v.step(1)
 		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyH) && ebiten.IsKeyPressed(ebiten.KeyShift) {
+		v.pan(-panX, 0) // pan left
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyL) && ebiten.IsKeyPressed(ebiten.KeyShift) {
+		v.pan(panX, 0) // pan right
 	}
 	// PgUp / PgDn: previous / next sibling directory with images
 	if inpututil.IsKeyJustPressed(ebiten.KeyPageUp) {
