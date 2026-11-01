@@ -54,10 +54,10 @@ var helpRows = [][2]string{
 	{"k / j", "prev / next image (vim)"},
 	{"pgup / pgdn", "prev / next directory"},
 	{`\`, "slideshow (2s)"},
-	{"[ / ]", "slideshow interval"},
+	{"[ / ]", "prev / next page (PDF) or slideshow interval"},
 	{"p", "pause animation"},
 	{", / .", "step animation back / on (PDF pages)"},
-	{"J / K", "next / prev page (PDF; shift+j / k)"},
+	{"shift+h/j/k/l", "pan view (left/down/up/right)"},
 	{"↑ / ↓", "prev / next page (PDF)"},
 	{"home / end", "first / last page (PDF)"},
 	{"d", "delete (to trash)"},
@@ -85,7 +85,6 @@ var helpLinkRect image.Rectangle
 func helpFooterH(rowH int) int {
 	return rowH
 }
-
 
 var (
 	helpBG     = color.RGBA{14, 15, 20, 204} // 80% opaque

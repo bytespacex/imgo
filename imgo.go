@@ -31,6 +31,7 @@
 //	v            measure: drag a rectangle, read its size in image / screen px
 //	ctrl+p / u   copy the file path / file:// URI to the clipboard
 //	drag         pan (when not fitted)
+//	shift+h/j/k/l pan the view left / down / up / right (when not fitted)
 //	click        1:1 zoom, then hands-free pan following the mouse (esc leaves)
 //	q / ESC      leave hands-free pan, then the slideshow, then quit
 //
@@ -107,95 +108,95 @@ var imageExts = map[string]bool{
 }
 
 type viewer struct {
-	files         []string // image list in the same directory
-	idx           int
-	img           *ebiten.Image
-	frames        []animFrame // animation frames; len>1 means animated
-	frameIdx      int
-	isPDF              bool // current file is a multi-page PDF (pages == frames)
-	pdfDPI             int  // raster resolution for PDF pages (0 = default 150)
-	pdfReq             chan pdfReq
-	pdfResult          chan pdfRendered
-	pdfPending         map[int]bool // page indices requested but not yet applied
-	pdfGen             int          // bumped on every load to discard stale results
-	pdfWorkerStarted   bool
-	frameNext     time.Time
-	animPaused    bool          // animation held: , and . step it a frame at a time
-	slide         bool          // slideshow: the next image comes on a timer
-	slideNext     time.Time     // when the current slide expires
-	slideEvery    time.Duration // interval between images (default 2s)
-	zoom          float64
-	offX          float64
-	offY          float64
-	rot           int     // quarter turns clockwise: 0 upright, 1 = 90° right
-	flipX         bool    // mirrored left-right
-	flipY         bool    // mirrored up-down
-	invert        bool    // negative: RGB flipped (display-only, pixels untouched)
-	bright        float64 // display brightness scale, 1 = neutral
-	smooth        bool    // linear filtering when scaling; false for crisp pixels
-	centered      bool    // image is centered; recomputed on every size change
-	atFit         bool    // current view is "fit to window" (Space returns to it)
-	dragging      bool
-	dragX         int
-	dragY         int
-	pressX        int // press position, to tell a click from a drag
-	pressY        int
-	panLock       bool // hands-free panning: cursor captured, canvas follows mouse
-	lockX         int  // last cursor position while locked (frame diff = delta)
-	lockY         int
-	lockPrimed    bool // false until the first captured frame (skip the jump)
-	lockWasFit    bool // view state to restore when the mode ends
-	winW          int
-	winH          int
-	pendW         int // candidate size waiting to be confirmed
-	pendH         int
-	pendN         int // frames the candidate has been seen unchanged
-	savedW        int // last windowed size, re-asserted when leaving fullscreen
-	savedH        int
-	fullW         int // last size seen while fullscreen, to recognise stale reports
-	fullH         int
-	showHelp      bool          // help overlay visible
-	helpScroll    int           // first help row shown while the list scrolls
-	helpLinkScreen image.Rectangle // on-screen rect of the clickable repo link
-	dim           *ebiten.Image // cached translucent overlay, rebuilt on resize
-	checkImg      *ebiten.Image // cached transparency checkerboard, rebuilt on resize
-	helpImg       *ebiten.Image // rendered help panel, system font
-	helpKey       string        // body size the panel was built for
-	statusImg     *ebiten.Image // rendered top status line, system font
-	statusKey     string        // size+text the status line was built for
-	statusPath    string        // file the cached size belongs to
-	statusSize    string        // cached fmtSize output for statusPath
-	sibs          []string      // sibling dirs with images; scanned on first PgUp/PgDn
-	sibsDone      bool          // the sibling scan ran (the result may be empty)
-	tipText       string        // transient tooltip message; empty = hidden
-	tipUntil      time.Time     // when the current tooltip expires
-	tipImg        *ebiten.Image // rendered tooltip panel, system font
-	tipKey        string        // size+text the tooltip panel was built for
-	tipSwatch     *color.RGBA   // optional colour chip drawn before the tooltip text
-	measure       bool          // measure mode: drag out a rectangle instead of panning
-	measDragging  bool          // a drag is in progress (button held)
-	measAX        float64       // one corner, in source image pixel coordinates
-	measAY        float64
-	measBX        float64 // the other corner (moves during the drag)
-	measBY        float64
-	measImg       *ebiten.Image // rendered measure readout, system font
-	measKey       string        // size+text the readout panel was built for
-	showOpen      bool          // external-program launcher overlay visible
-	openFilter    string        // typed prefix narrowing the launcher list
-	openIdx       int           // highlighted program within the filtered list
-	openProgs     []openProgram // parsed IMGO_OPEN, cached on first use
-	openDone      bool          // the IMGO_OPEN parse ran (the result may be empty)
-	openSkipRunes bool          // drop one frame of runes right after opening
-	openImg       *ebiten.Image // rendered launcher panel, system font
-	openKey       string        // filter+selection the launcher panel was built for
-	showList      bool          // directory file-list panel visible
-	listInput     bool          // the filter box has focus (keystrokes type, not navigate)
-	listFilter    string        // filter text narrowing the file list
-	listSel       int           // selected row within the filtered list
-	listTop       int           // first visible row of the filtered list
-	listSkipRunes bool          // drop one frame of runes right after focusing the filter
-	listImg       *ebiten.Image // rendered file-list panel, system font
-	listKey       string        // filter+selection the file-list panel was built for
+	files            []string // image list in the same directory
+	idx              int
+	img              *ebiten.Image
+	frames           []animFrame // animation frames; len>1 means animated
+	frameIdx         int
+	isPDF            bool // current file is a multi-page PDF (pages == frames)
+	pdfDPI           int  // raster resolution for PDF pages (0 = default 150)
+	pdfReq           chan pdfReq
+	pdfResult        chan pdfRendered
+	pdfPending       map[int]bool // page indices requested but not yet applied
+	pdfGen           int          // bumped on every load to discard stale results
+	pdfWorkerStarted bool
+	frameNext        time.Time
+	animPaused       bool          // animation held: , and . step it a frame at a time
+	slide            bool          // slideshow: the next image comes on a timer
+	slideNext        time.Time     // when the current slide expires
+	slideEvery       time.Duration // interval between images (default 2s)
+	zoom             float64
+	offX             float64
+	offY             float64
+	rot              int     // quarter turns clockwise: 0 upright, 1 = 90° right
+	flipX            bool    // mirrored left-right
+	flipY            bool    // mirrored up-down
+	invert           bool    // negative: RGB flipped (display-only, pixels untouched)
+	bright           float64 // display brightness scale, 1 = neutral
+	smooth           bool    // linear filtering when scaling; false for crisp pixels
+	centered         bool    // image is centered; recomputed on every size change
+	atFit            bool    // current view is "fit to window" (Space returns to it)
+	dragging         bool
+	dragX            int
+	dragY            int
+	pressX           int // press position, to tell a click from a drag
+	pressY           int
+	panLock          bool // hands-free panning: cursor captured, canvas follows mouse
+	lockX            int  // last cursor position while locked (frame diff = delta)
+	lockY            int
+	lockPrimed       bool // false until the first captured frame (skip the jump)
+	lockWasFit       bool // view state to restore when the mode ends
+	winW             int
+	winH             int
+	pendW            int // candidate size waiting to be confirmed
+	pendH            int
+	pendN            int // frames the candidate has been seen unchanged
+	savedW           int // last windowed size, re-asserted when leaving fullscreen
+	savedH           int
+	fullW            int // last size seen while fullscreen, to recognise stale reports
+	fullH            int
+	showHelp         bool            // help overlay visible
+	helpScroll       int             // first help row shown while the list scrolls
+	helpLinkScreen   image.Rectangle // on-screen rect of the clickable repo link
+	dim              *ebiten.Image   // cached translucent overlay, rebuilt on resize
+	checkImg         *ebiten.Image   // cached transparency checkerboard, rebuilt on resize
+	helpImg          *ebiten.Image   // rendered help panel, system font
+	helpKey          string          // body size the panel was built for
+	statusImg        *ebiten.Image   // rendered top status line, system font
+	statusKey        string          // size+text the status line was built for
+	statusPath       string          // file the cached size belongs to
+	statusSize       string          // cached fmtSize output for statusPath
+	sibs             []string        // sibling dirs with images; scanned on first PgUp/PgDn
+	sibsDone         bool            // the sibling scan ran (the result may be empty)
+	tipText          string          // transient tooltip message; empty = hidden
+	tipUntil         time.Time       // when the current tooltip expires
+	tipImg           *ebiten.Image   // rendered tooltip panel, system font
+	tipKey           string          // size+text the tooltip panel was built for
+	tipSwatch        *color.RGBA     // optional colour chip drawn before the tooltip text
+	measure          bool            // measure mode: drag out a rectangle instead of panning
+	measDragging     bool            // a drag is in progress (button held)
+	measAX           float64         // one corner, in source image pixel coordinates
+	measAY           float64
+	measBX           float64 // the other corner (moves during the drag)
+	measBY           float64
+	measImg          *ebiten.Image // rendered measure readout, system font
+	measKey          string        // size+text the readout panel was built for
+	showOpen         bool          // external-program launcher overlay visible
+	openFilter       string        // typed prefix narrowing the launcher list
+	openIdx          int           // highlighted program within the filtered list
+	openProgs        []openProgram // parsed IMGO_OPEN, cached on first use
+	openDone         bool          // the IMGO_OPEN parse ran (the result may be empty)
+	openSkipRunes    bool          // drop one frame of runes right after opening
+	openImg          *ebiten.Image // rendered launcher panel, system font
+	openKey          string        // filter+selection the launcher panel was built for
+	showList         bool          // directory file-list panel visible
+	listInput        bool          // the filter box has focus (keystrokes type, not navigate)
+	listFilter       string        // filter text narrowing the file list
+	listSel          int           // selected row within the filtered list
+	listTop          int           // first visible row of the filtered list
+	listSkipRunes    bool          // drop one frame of runes right after focusing the filter
+	listImg          *ebiten.Image // rendered file-list panel, system font
+	listKey          string        // filter+selection the file-list panel was built for
 }
 
 // openProgram is one entry of IMGO_OPEN: the command to run together with its
@@ -1433,6 +1434,17 @@ func (v *viewer) Update() error {
 			v.stepFrame(-1)
 		}
 		if inpututil.IsKeyJustPressed(ebiten.KeyArrowDown) {
+			v.stepFrame(1)
+		}
+	}
+	// [ / ] step PDF pages — unless a slideshow is running, in which case they
+	// tune its interval instead (handled just below). This keeps the keys useful
+	// for paging a document without disturbing the slideshow controls.
+	if v.isPDF && !v.slide {
+		if inpututil.IsKeyJustPressed(ebiten.KeyLeftBracket) {
+			v.stepFrame(-1)
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyRightBracket) {
 			v.stepFrame(1)
 		}
 	}

@@ -14,8 +14,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	_ "image/gif"

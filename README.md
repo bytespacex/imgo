@@ -20,7 +20,7 @@ One codebase builds two binaries, covering everything from terminal previews to 
 - **Native Sixel** — foot and tmux 3.8+ parse it directly; no `allow-passthrough` needed.
 - **Automatic cell sizing** — scales to the terminal's real character-cell pixels and keeps the aspect ratio. Probe chain: `IMGO_CELL` → `TIOCGWINSZ` → cache → `CSI 16t` (see [Cell pixel resolution](#cell-pixel-resolution)); no manual pixel values.
 - **Pure-Go decoding** — png / jpeg / gif / webp / tiff / bmp / ico / svg.
-- **External fallback** — avif / heic / heif / jxl are piped through ffmpeg with a 5 s timeout. PDF is rendered by an external tool: **mutool** (MuPDF) when present, otherwise **poppler-utils** (`pdftoppm` + `pdfinfo`) as a fallback — override with `IMGO_PDF=mutool|poppler|auto`. `imgo` shows the whole document as frames — `,` / `.` (and `J` / `K`, `↑` / `↓`, or `Home` / `End`) step and jump pages, and the status bar reads `[1/822][p3/120][2.3M][1920x1080] name.png` with the page counter `[pN/total]` in blue right after the file counter; pages render lazily so a large PDF keeps only a few in memory. `imgo -p <n>` opens on a given page. `imgc` previews a single page via `-p <n>` (default 1).
+- **External fallback** — avif / heic / heif / jxl are piped through ffmpeg with a 5 s timeout. PDF is rendered by an external tool: **mutool** (MuPDF) when present, otherwise **poppler-utils** (`pdftoppm` + `pdfinfo`) as a fallback — override with `IMGO_PDF=mutool|poppler|auto`. `imgo` shows the whole document as frames — `,` / `.`, `↑` / `↓` and `[` / `]` step pages, `Home` / `End` jump, and the status bar reads `[1/822][p3/120][2.3M][1920x1080] name.png` with the page counter `[pN/total]` in blue right after the file counter; pages render lazily so a large PDF keeps only a few in memory. `imgo -p <n>` opens on a given page. `imgc` previews a single page via `-p <n>` (default 1).
 - **Graceful degradation** — terminals without Sixel get Unicode half-blocks; an undecodable file exits with code `1` so callers can fall back to `bat` / `cat`.
 
 ### imgo — GUI viewer
@@ -67,10 +67,10 @@ The same list lives inside the `?` help panel.
 | `k` / `j` | Previous / next image (vim keys, same as `←` / `→`) |
 | `PgUp` / `PgDn` | Previous / next sibling directory with images (lands on the first image; a 2 s tooltip follows each jump) |
 | `\` | Slideshow toggle (2 s default; the status bar shows `[slide mode-2.5s]` and darkens) |
-| `[` / `]` | Slideshow interval − / + 0.5 s (0.5–10 s, while the slideshow runs) |
+| `[` / `]` | Previous / next **PDF page**; while a slideshow runs, tune its interval − / + 0.5 s (0.5–10 s) instead |
 | `p` | Pause / resume animation playback |
 | `,` / `.` | Step one animation frame back / forward (pauses first, wraps at the ends); for PDFs these step pages |
-| `J` / `K` | Next / previous **PDF page** (`Shift`+`j` / `Shift`+`k`; PDF only) |
+| `Shift`+`h` / `j` / `k` / `l` | Pan the view left / down / up / right (when the image overflows the window) |
 | `Home` / `End` | First / last **PDF page** (PDF only) |
 | `↑` / `↓` | Previous / next **PDF page** (PDF only) |
 | `d` | Move the current image to the trash (advances; deleting the last image closes the window) |
@@ -260,7 +260,7 @@ Set `IMGO_DEBUG=1` to print per-frame size / zoom / offset when chasing resize b
 - **Backends** — **mutool** (MuPDF) is preferred when present: it handles more PDF features (transparency, JPEG2000 / JBIG2, CMYK) that poppler sometimes chokes on, and it is a single binary. **poppler-utils** (`pdftoppm` + `pdfinfo`) is the fallback. Both are invoked as subprocesses, never linked.
 - **Auto-detection & fallback** — with `IMGO_PDF=auto` (the default) the first backend found is used; if a render or page-count call fails on the active backend, imgo transparently retries the other one and sticks to whichever worked for the rest of the session. Set `IMGO_PDF=mutool` or `IMGO_PDF=poppler` to pin a backend and disable the fallback.
 - **Lazy, cached rendering** — `imgo` does not rasterise the whole document up front. It renders the current page synchronously (so something appears immediately) and prefetches the neighbouring pages on a background worker, so turning pages never blocks on the rasteriser. A 1000-page PDF holds only a few decoded pages in memory at once.
-- **Pages as frames** — each PDF page is one item in the same `frames` model used by animations, so `,` / `.` (and `J` / `K`, `↑` / `↓`, `Home` / `End`) step through pages exactly like animation frames. The status bar shows `[…][p3/120]…` with the page counter in blue next to the file counter.
+- **Pages as frames** — each PDF page is one item in the same `frames` model used by animations, so `,` / `.`, `↑` / `↓` and `[` / `]` step through pages exactly like animation frames, and `Home` / `End` jump. The status bar shows `[…][p3/120]…` with the page counter in blue next to the file counter.
 - **Page selection** — `imgo -p <n>` and `imgc -p <n>` open / preview a given 1-based page (default 1); out-of-range values are clamped to 1.
 
 ## Project layout
