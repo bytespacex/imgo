@@ -105,6 +105,9 @@ var imageExts = map[string]bool{
 	".webp": true, ".bmp": true, ".tif": true, ".tiff": true,
 	".ico": true, ".svg": true, ".svgz": true,
 	".avif": true, ".heic": true, ".heif": true, ".jxl": true,
+	// PDFs are browsable alongside images (each opens as a multi-page
+	// document), so j / k / ← / → step between them like any other file.
+	".pdf": true,
 }
 
 type viewer struct {
@@ -276,8 +279,8 @@ func runGUI(path string) {
 	}
 }
 
-// dirImages lists the image files directly inside dir (no recursion),
-// sorted by name: the file list for one directory.
+// dirImages lists the browsable files (images and PDFs) directly inside dir
+// (no recursion), sorted by name: the file list for one directory.
 func dirImages(dir string) []string {
 	var out []string
 	entries, _ := os.ReadDir(dir) // unreadable: empty, which callers treat as "nothing here"
