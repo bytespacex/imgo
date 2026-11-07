@@ -113,7 +113,7 @@ var imageExts = map[string]bool{
 type viewer struct {
 	files            []string // image list in the same directory
 	idx              int
-	img              *ebiten.Image
+	img              *pic
 	frames           []animFrame // animation frames; len>1 means animated
 	frameIdx         int
 	isPDF            bool // current file is a multi-page PDF (pages == frames)
@@ -212,7 +212,7 @@ type openProgram struct {
 
 // animFrame is a decoded animation frame, already on the GPU.
 type animFrame struct {
-	img   *ebiten.Image
+	img   *pic
 	delay time.Duration
 }
 
@@ -329,7 +329,7 @@ func (v *viewer) load() error {
 	if raw := decodeAnim(path); len(raw) > 0 {
 		v.frames = make([]animFrame, len(raw))
 		for i, fr := range raw {
-			v.frames[i] = animFrame{img: ebiten.NewImageFromImage(fr.img), delay: fr.delay}
+			v.frames[i] = animFrame{img: newPic(fr.img), delay: fr.delay}
 		}
 	} else {
 		f, err := os.Open(path)
@@ -347,7 +347,7 @@ func (v *viewer) load() error {
 		} else {
 			f.Close()
 		}
-		v.frames = []animFrame{{img: ebiten.NewImageFromImage(img)}}
+		v.frames = []animFrame{{img: newPic(img)}}
 	}
 	v.frameIdx = 0
 	v.img = v.frames[0].img
@@ -488,7 +488,7 @@ func (v *viewer) pdfDrain() {
 				continue
 			}
 			if r.idx >= 0 && r.idx < len(v.frames) && v.frames[r.idx].img == nil {
-				v.frames[r.idx] = animFrame{img: ebiten.NewImageFromImage(r.img)}
+				v.frames[r.idx] = animFrame{img: newPic(r.img)}
 			}
 		default:
 			return
@@ -510,7 +510,7 @@ func (v *viewer) ensurePage(idx int) error {
 			v.tooltip("pdf: " + err.Error())
 			return err
 		}
-		v.frames[idx] = animFrame{img: ebiten.NewImageFromImage(img)}
+		v.frames[idx] = animFrame{img: newPic(img)}
 	}
 	v.pdfRequest(idx - 1)
 	v.pdfRequest(idx + 1)
@@ -1926,12 +1926,12 @@ func (v *viewer) Draw(screen *ebiten.Image) {
 			// invert / brightness route through a color matrix; only the image
 			// is transformed, never the checkerboard, status line or overlays
 			op := v.imageOp()
-			colorm.DrawImage(screen, v.img, v.viewColorM(), &colorm.DrawImageOptions{
+			v.img.DrawColorM(screen, v.viewColorM(), &colorm.DrawImageOptions{
 				GeoM:   op.GeoM,
 				Filter: op.Filter,
 			})
 		} else {
-			screen.DrawImage(v.img, v.imageOp())
+			v.img.Draw(screen, v.imageOp())
 		}
 	}
 	v.drawMeasureRect(screen)
